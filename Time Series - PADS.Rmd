@@ -1,0 +1,398 @@
+---
+title: "Séries Temporais"
+subtitle: "Modelos Preditivos Avançados"
+author: "Viviane Sanchez"
+institute: "Insper - Programa avançado em Data Science"
+date: "06/06/2020"
+output:
+  xaringan::moon_reader:
+    encoding: "UTF-8"
+    chakra: libs/remark-latest.min.js
+    css: [metropolis, metropolis-fonts]
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r global_options, echo = FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.retina = 3)
+
+options(htmltools.dir.version = FALSE)
+
+```
+
+
+```{r setup, include=FALSE}
+library(icon)
+library(tidyverse)
+library(knitr)
+library(plotly)
+library(tidyquant)
+
+```
+
+# Introdução
+
+--
+- O que são séries temporais?
+
+--
+
+- Objetivo:
+  Introduzir conceitos de séries temporais utilizando os seguintes pacotes além do R base:
+    - [`tidyquant`](https://business-science.github.io/tidyquant/articles/TQ01-core-functions-in-tidyquant.html)
+    - [`rugarch`](https://cran.r-project.org/web/packages/rugarch/index.html)
+    
+--
+
+- Dificuldades: 
+    - Nomes difíceis 
+    - Cálculos complexos
+
+--
+
+-  Benefício - Maior assertividade em **projeções**:
+  - Vendas
+  - Estoques de medicamentos
+  - Recargas de celular
+  - Mercado Financeiro (risco, precificação de derivativos)
+
+---
+# Aplicação
+
+- Cotação do dólar
+
+```{r fig.align='center', include=FALSE}
+
+brl <- tq_get('DEXBZUS', get = "economic.data", from = "1995-01-02", to  = "2020-06-06") %>% 
+  na.omit()
+
+```
+
+```{r, echo = FALSE, fig.align = 'center', fig.width= 11, fig.height= 5}
+
+plot_ly(brl, x = ~date, 
+               y = ~price, 
+               mode = 'lines',
+        text = ~paste("Data: ", date, '<br>Preço: R$', price))
+  
+```
+
+Fonte: [Federal Reserve Economic Data (FRED)](https://fred.stlouisfed.org/categories)
+
+
+```{r eval=FALSE, include=FALSE}
+
+- 2001/2002: Ataque às Torres Gêmeas/Eleição do Lula
+- 2008: Crise
+- 2015: Impeachment/Eleição Trump
+- 2020: Coronavírus
+```
+
+
+
+---
+# Aplicação
+
+
+
+```{r echo=TRUE, fig.align='center'}
+
+library(tidyquant)
+
+brl <- tq_get('DEXBZUS', get = "economic.data", from = "1995-01-02", 
+              to  = "2020-06-02") %>% na.omit()
+
+tail(brl) %>% 
+   kable(format = "html", align = c(rep("c", 3)))
+
+```
+
+
+---
+
+# Decomposição
+
+.pull-left[
+
+```{r}
+
+brl_ts <- ts(brl$price, frequency = 365)
+
+decomp <- stl(brl_ts, s.window = "periodic")
+
+```
+
+]
+
+
+```{r echo=TRUE, fig.align='center', fig.height=5, fig.width=11}
+
+plot(decomp)
+
+```
+
+
+---
+# Retornos
+
+- Retorno Simples
+
+$$ret = \frac{P_t - P_{t-1}}{P_{t-1}}$$
+
+--
+- Retorno logarítmico
+
+$$log.ret = log(\frac{P_t}{P_{t-1}})$$
+
+--
+-  Retorno no período
+
+$$period.return = exp(log.ret_1 + log.ret_2 + ..... + log.ret_n) - 1$$
+n: dias no período
+
+```{r eval=FALSE, include=FALSE}
+
+Retorno simples: mais facilidade em qlq contexto (projeção de recarga p.e.). 
+
+Para finanças no entanto, utiliza-se o retorno logarítmico para computar rertornos contínuos.
+```
+---
+
+# Retornos
+
+```{r, echo = TRUE, fig.align = 'left'}
+
+log_returns <- brl %>%
+    group_by(symbol) %>%
+    tq_transmute(select = price, 
+                 mutate_fun = periodReturn, 
+                 period     = "daily", 
+                 col_rename = "log_return")
+```
+
+--
+```{r, echo = FALSE, fig.align = 'left', fig.width= 11, fig.height= 3}
+
+#library(plotly)
+
+plot_ly(log_returns, x = ~date, 
+               y = ~log_return, 
+               mode = 'lines',
+        text = ~paste("Data: ", date, '<br>Retorno: ', round(log_return*100,2), '%<br>'))
+
+```
+
+---
+# Retornos 
+
+ - Decomposição
+
+```{r echo=FALSE, fig.height= 5, fig.width= 11}
+
+return_ts <- ts(log_returns$log_return, frequency = 365)
+
+decomp_ret <- stl(return_ts, s.window = "periodic")
+
+plot(decomp_ret)
+
+```
+
+---
+# Volatilidade
+
+- Média e desvio padrão: 
+```{r echo=FALSE}
+
+(mu = mean(log_returns$log_return))
+
+(sig = sd(log_returns$log_return))
+
+```
+
+
+--
+
+  - Distribuição:
+
+```{r echo=FALSE, fig.align='center', fig.height = 5 , fig.width=5}
+
+log_returns %>% 
+  ggplot(aes(log_return)) +
+  geom_density() +
+  labs(title = "Distribuição de Retornos") 
+```
+
+
+---
+# Autocorrelação
+ 
+```{r, echo = TRUE, fig.align = 'center', fig.width = 10, fig.height= 5}
+
+acf(log_returns$log_return)
+
+```
+ 
+"Quanto maior a quantidade de linhas (coeficientes) fora da zona de confiança (95%), maior a evidência de que existe autocorrelação." No caso, a evidência é praticamente inexistente.
+
+
+```{r eval=FALSE, include=FALSE}
+
+A FAC apresenta a dependência linear entre as observações ao longo do tempo - e por isso que tende a zero (a relação entre uma obs de hoje e uma de 1 ano atrás é menor do que a de hoje e ontem)
+
+
+```
+
+---
+
+# Autocorrelação Parcial
+ 
+```{r, echo = TRUE, fig.align = 'center', fig.width = 10, fig.height= 5}
+
+pacf(log_returns$log_return)
+
+```
+ 
+
+```{r eval=FALSE, include=FALSE}
+
+a FACP mostra a correlação entre duas observações, eliminando a influência das demais obs, e aí acaba sendo mais fácil ver a sazonalidade (vc vê a relação entre hoje e 7 dias atrás, mas eliminando o efeito dos demais dias)
+
+
+```
+
+---
+
+
+# Clusters de volatilidade
+
+  (*também conhecido como heteroscedasticidade*)
+  
+.pull-left[
+
+- Verifica se a ordem dos dados é importante
+
+```{r fig.align = 'center', fig.width = 10, fig.height= 5}
+
+acf(abs(log_returns$log_return))
+
+```
+
+]
+
+-- 
+
+
+Como os coeficientes de correlação são positivos, e estão todos fora do intervalo de 95% de confiaça, pode-se dizer que o tamanho do retorno influencia o próximo:
+
+- Rertornos grandes próximos de retoronos grandes
+- Retornos pequenos, próximos de retornos pequenos
+
+Confirmando, portanto a existência de clusters de volatilidade e a importância da ordem dos dados.
+
+---
+# GARCH
+
+(**G**eneralized **A**uto-**R**egressive **C**onditional **H**eteroskedasticity)
+
+- Considera os clusters de volatilidade no modelo
+
+``` {r}
+
+library(rugarch)
+
+rets <- log_returns$log_return
+
+garch.N <- ugarchspec(variance.model = list(model = "sGARCH",garchOrder = c(1, 1)),
+                                            mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+                                            distribution.model = "norm")
+
+fit.garch.N <- ugarchfit(spec = garch.N, data = rets)
+
+garch_vol <- tibble(log_rets = rets, 
+                sd = fit.garch.N@fit$sigma, 
+                z = fit.garch.N@fit$z) 
+
+```
+
+
+---
+# GARCH
+
+- Cálculo da volatilidade
+
+```{r eval=TRUE, echo=FALSE, fig.height= 5, fig.width=10, fig.align= 'center'}
+
+garch_vol %>%
+  mutate(annual_vol = sd*sqrt(252)*100) %>%
+  bind_cols(date = log_returns$date) %>% 
+  ggplot(aes(x = date, y = annual_vol)) +
+  geom_line() +
+  labs(title = "Volatilidade Anualizada", y = "Volatilidade (%)", x = "Data")
+
+```
+
+---
+
+# GARCH vs VIX
+
+```{r echo=FALSE, fig.align = 'center'}
+
+vix <- tq_get("VIXCLS", get = "economic.data", from = "1995-01-02", to  = "2020-05-05")
+
+vix <- vix %>% 
+  na.omit()
+
+garch_vol <- garch_vol %>%
+  mutate(annual_vol = sd*sqrt(252)) %>%
+  bind_cols(date = log_returns$date)
+
+inner_join(vix, garch_vol, by = 'date') %>% 
+  ggplot(aes(x = price/100, y = annual_vol)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_abline(intercept = 0, color = 'red') +
+  labs(title = "Fitted Vol vs VIX", x = 'log(VIX)', y = 'log(Fitted Vol)')
+
+
+```
+
+---
+# Conclusão
+
+- Séries temporais
+
+--
+
+- Volatilidade
+
+--
+
+- Funções de Autocorrelação
+
+--
+
+- Clusters de Volatilidade
+- GARCH
+
+
+---
+
+class: clear, center, middle
+
+  .font150[**Obrigada!**]
+
+
+ `r icon::fa("github")` [**sanchezvivi**](https://github.com/sanchezvivi)
+
+---
+# Referências
+
+- Carol Alexander - [Market Risk Analysis](http://carolalexander.org/market-risk-analysis/)
+- [tiagomendonca/satrday19](https://github.com/tiagomendonca/satrday19)
+- [tidyquant](https://business-science.github.io/tidyquant/articles/TQ01-core-functions-in-tidyquant.html)
+- [Risk Management with R ](https://www.coursera.org/learn/financial-risk-management-with-r?)
+- Apresentação criada no pacote [xaringan](https://github.com/yihui/xaringan)
